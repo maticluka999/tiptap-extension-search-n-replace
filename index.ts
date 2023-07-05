@@ -39,7 +39,7 @@ declare module '@tiptap/core' {
       /**
        * @description Replace first instance of search result with given replace term.
        */
-      replace: () => ReturnType;
+      replace: (replaceIndex?: number) => ReturnType;
       /**
        * @description Replace all instances of search result with given replace term.
        */
@@ -140,13 +140,14 @@ function processSearches(
 const replace = (
   replaceTerm: string,
   results: Range[],
-  { state, dispatch }: any
+  { state, dispatch }: any,
+  resultIndex?: number
 ) => {
-  const firstResult = results[0];
+  const firstResult = results[resultIndex || 0];
 
   if (!firstResult) return;
 
-  const { from, to } = results[0];
+  const { from, to } = firstResult;
 
   if (dispatch) dispatch(state.tr.insertText(replaceTerm, from, to));
 };
@@ -264,7 +265,7 @@ export const SearchAndReplace = Extension.create<
           return false;
         },
       replace:
-        () =>
+        (resultIndex?: number) =>
         ({ editor, state, dispatch }) => {
           const { replaceTerm, results } = editor.storage.searchAndReplace;
 
