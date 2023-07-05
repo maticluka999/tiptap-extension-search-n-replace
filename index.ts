@@ -1,7 +1,29 @@
-import { Extension } from '@tiptap/core'
-import { Decoration, DecorationSet } from 'prosemirror-view'
-import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
-import { Node as ProsemirrorNode } from 'prosemirror-model'
+// MIT License
+
+// Copyright (c) 2022 Jeet Mandaliya (Github Username: sereneinserenade)
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { Extension, Range } from '@tiptap/core';
+import { Decoration, DecorationSet } from 'prosemirror-view';
+import { Plugin, PluginKey } from 'prosemirror-state';
+import { Node as ProsemirrorNode } from 'prosemirror-model';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -9,35 +31,21 @@ declare module '@tiptap/core' {
       /**
        * @description Set search term in extension.
        */
-      setSearchTerm: (searchTerm: string) => ReturnType,
+      setSearchTerm: (searchTerm: string) => ReturnType;
       /**
        * @description Set replace term in extension.
        */
-      setReplaceTerm: (replaceTerm: string) => ReturnType,
+      setReplaceTerm: (replaceTerm: string) => ReturnType;
       /**
        * @description Replace first instance of search result with given replace term.
        */
-      replace: () => ReturnType,
+      replace: () => ReturnType;
       /**
        * @description Replace all instances of search result with given replace term.
        */
-      replaceAll: () => ReturnType,
-    }
+      replaceAll: () => ReturnType;
+    };
   }
-}
-
-interface Result {
-  from: number;
-  to: number;
-}
-
-interface SearchOptions {
-  searchTerm: string;
-  replaceTerm: string;
-  results: Result[];
-  searchResultClass: string;
-  caseSensitive: boolean;
-  disableRegex: boolean;
 }
 
 interface TextNodesWithPosition {
@@ -45,214 +53,276 @@ interface TextNodesWithPosition {
   pos: number;
 }
 
-const updateView = (state: EditorState<any>, dispatch: any) => dispatch(state.tr)
+const getRegex = (
+  s: string,
+  disableRegex: boolean,
+  caseSensitive: boolean
+): RegExp => {
+  return RegExp(
+    disableRegex ? s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') : s,
+    caseSensitive ? 'gu' : 'gui'
+  );
+};
 
-const regex = (s: string, disableRegex: boolean, caseSensitive: boolean): RegExp => {
-  return RegExp(disableRegex ? s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') : s, caseSensitive ? 'gu' : 'gui')
+interface ProcessedSearches {
+  decorationsToReturn: DecorationSet;
+  results: Range[];
 }
 
-function processSearches(doc: ProsemirrorNode, searchTerm: RegExp, searchResultClass: string): { decorationsToReturn: DecorationSet, results: Result[] } {
-  const decorations: Decoration[] = []
-  let textNodesWithPosition: TextNodesWithPosition[] = []
-  const results: Result[] = []
+function processSearches(
+  doc: ProsemirrorNode,
+  searchTerm: RegExp,
+  searchResultClass: string
+): ProcessedSearches {
+  const decorations: Decoration[] = [];
+  let textNodesWithPosition: TextNodesWithPosition[] = [];
+  const results: Range[] = [];
 
-  let index = 0
+  let index = 0;
 
-  if (!searchTerm) return { decorationsToReturn: DecorationSet.empty, results: [] }
+  if (!searchTerm)
+    return { decorationsToReturn: DecorationSet.empty, results: [] };
 
-  doc && doc.descendants((node, pos) => {
+  doc?.descendants((node, pos) => {
     if (node.isText) {
       if (textNodesWithPosition[index]) {
         textNodesWithPosition[index] = {
           text: textNodesWithPosition[index].text + node.text,
           pos: textNodesWithPosition[index].pos,
-        }
+        };
       } else {
         textNodesWithPosition[index] = {
           text: `${node.text}`,
           pos,
-        }
+        };
       }
     } else {
-      index += 1
+      index += 1;
     }
-  })
+  });
 
-  textNodesWithPosition = textNodesWithPosition.filter(Boolean)
+  textNodesWithPosition = textNodesWithPosition.filter(Boolean);
 
   for (let i = 0; i < textNodesWithPosition.length; i += 1) {
-    const { text, pos } = textNodesWithPosition[i]
+    const { text, pos } = textNodesWithPosition[i];
 
-    const matches = [...text.matchAll(searchTerm)]
+    const matches = Array.from(text.matchAll(searchTerm)).filter(
+      ([matchText]) => matchText.trim()
+    );
 
     for (let j = 0; j < matches.length; j += 1) {
-      const m = matches[j]
+      const m = matches[j];
 
-      if (m[0] === '') break
+      if (m[0] === '') break;
 
       if (m.index !== undefined) {
         results.push({
           from: pos + m.index,
           to: pos + m.index + m[0].length,
-        })
+        });
       }
     }
   }
 
   for (let i = 0; i < results.length; i += 1) {
     const r = results[i];
-    decorations.push(Decoration.inline(r.from, r.to, { class: searchResultClass }))
+    decorations.push(
+      Decoration.inline(r.from, r.to, { class: searchResultClass })
+    );
   }
 
   return {
     decorationsToReturn: DecorationSet.create(doc, decorations),
     results,
-  }
+  };
 }
 
-const replace = (replaceTerm: string, results: Result[], { state, dispatch }: any) => {
-  const firstResult = results[0]
+const replace = (
+  replaceTerm: string,
+  results: Range[],
+  { state, dispatch }: any
+) => {
+  const firstResult = results[0];
 
-  if (!firstResult) return
+  if (!firstResult) return;
 
-  const { from, to } = results[0]
+  const { from, to } = results[0];
 
-  if (dispatch) dispatch(state.tr.insertText(replaceTerm, from, to))
-}
+  if (dispatch) dispatch(state.tr.insertText(replaceTerm, from, to));
+};
 
-const rebaseNextResult = (replaceTerm: string, index: number, lastOffset: number, results: Result[]): [number, Result[]] | null => {
-  const nextIndex = index + 1
+const rebaseNextResult = (
+  replaceTerm: string,
+  index: number,
+  lastOffset: number,
+  results: Range[]
+): [number, Range[]] | null => {
+  const nextIndex = index + 1;
 
-  if (!results[nextIndex]) return null
+  if (!results[nextIndex]) return null;
 
-  const { from: currentFrom, to: currentTo } = results[index]
+  const { from: currentFrom, to: currentTo } = results[index];
 
-  const offset = (currentTo - currentFrom - replaceTerm.length) + lastOffset
+  const offset = currentTo - currentFrom - replaceTerm.length + lastOffset;
 
-  const { from, to } = results[nextIndex]
+  const { from, to } = results[nextIndex];
 
   results[nextIndex] = {
     to: to - offset,
     from: from - offset,
+  };
+
+  return [offset, results];
+};
+
+const replaceAll = (
+  replaceTerm: string,
+  results: Range[],
+  { tr, dispatch }: any
+) => {
+  let offset = 0;
+
+  let resultsCopy = results.slice();
+
+  if (!resultsCopy.length) return;
+
+  for (let i = 0; i < resultsCopy.length; i += 1) {
+    const { from, to } = resultsCopy[i];
+
+    tr.insertText(replaceTerm, from, to);
+
+    const rebaseNextResultResponse = rebaseNextResult(
+      replaceTerm,
+      i,
+      offset,
+      resultsCopy
+    );
+
+    if (!rebaseNextResultResponse) continue;
+
+    offset = rebaseNextResultResponse[0];
+    resultsCopy = rebaseNextResultResponse[1];
   }
 
-  return [offset, results]
+  dispatch(tr);
+};
+
+export const searchAndReplacePluginKey = new PluginKey(
+  'searchAndReplacePlugin'
+);
+
+interface SearchAndReplaceOptions {
+  searchResultClass: string;
+  caseSensitive: boolean;
+  disableRegex: boolean;
 }
 
-const replaceAll = (replaceTerm: string, results: Result[], { tr, dispatch }: any) => {
-  let offset = 0
-
-  let ourResults = results.slice()
-
-  if (!ourResults.length) return
-
-  for (let i = 0; i < ourResults.length; i += 1) {
-    const { from, to } = ourResults[i]
-
-    tr.insertText(replaceTerm, from, to)
-
-    const rebaseNextResultResponse = rebaseNextResult(replaceTerm, i, offset, ourResults)
-
-    if (rebaseNextResultResponse) {
-      offset = rebaseNextResultResponse[0]
-      ourResults = rebaseNextResultResponse[1]
-    }
-  }
-
-  dispatch(tr)
+interface SearchAndReplaceStorage {
+  searchTerm: string;
+  replaceTerm: string;
+  results: Range[];
+  lastSearchTerm: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/ban-types
-export const SearchNReplace = Extension.create<SearchOptions>({
-  name: 'search',
+export const SearchAndReplace = Extension.create<
+  SearchAndReplaceOptions,
+  SearchAndReplaceStorage
+>({
+  name: 'searchAndReplace',
 
   addOptions() {
+    return {
+      searchResultClass: 'search-result',
+      caseSensitive: false,
+      disableRegex: false,
+    };
+  },
+
+  addStorage() {
     return {
       searchTerm: '',
       replaceTerm: '',
       results: [],
-      searchResultClass: 'search-result',
-      caseSensitive: false,
-      disableRegex: false,
-    }
+      lastSearchTerm: '',
+    };
   },
 
   addCommands() {
     return {
-      setSearchTerm: (searchTerm: string) => ({ state, dispatch }) => {
-        this.options.searchTerm = searchTerm
-        this.options.results = []
+      setSearchTerm:
+        (searchTerm: string) =>
+        ({ editor }) => {
+          editor.storage.searchAndReplace.searchTerm = searchTerm;
 
-        updateView(state, dispatch)
+          return false;
+        },
+      setReplaceTerm:
+        (replaceTerm: string) =>
+        ({ editor }) => {
+          editor.storage.searchAndReplace.replaceTerm = replaceTerm;
 
-        return false
-      },
-      setReplaceTerm: (replaceTerm: string) => ({ state, dispatch }) => {
-        this.options.replaceTerm = replaceTerm
-        this.options.results = []
+          return false;
+        },
+      replace:
+        () =>
+        ({ editor, state, dispatch }) => {
+          const { replaceTerm, results } = editor.storage.searchAndReplace;
 
-        updateView(state, dispatch)
+          replace(replaceTerm, results, { state, dispatch });
 
-        return false
-      },
-      replace: () => ({ state, dispatch }) => {
-        const { replaceTerm, results } = this.options
+          return false;
+        },
+      replaceAll:
+        () =>
+        ({ editor, tr, dispatch }) => {
+          const { replaceTerm, results } = editor.storage.searchAndReplace;
 
-        replace(replaceTerm, results, { state, dispatch })
+          replaceAll(replaceTerm, results, { tr, dispatch });
 
-        this.options.results.shift()
-
-        updateView(state, dispatch)
-
-        return false
-      },
-      replaceAll: () => ({ state, tr, dispatch }) => {
-        const { replaceTerm, results } = this.options
-
-        replaceAll(replaceTerm, results, { tr, dispatch })
-
-        this.options.results = []
-
-        updateView(state, dispatch)
-
-        return false
-      },
-    }
+          return false;
+        },
+    };
   },
 
   addProseMirrorPlugins() {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const extensionThis = this
+    const editor = this.editor;
+    const { searchResultClass, disableRegex, caseSensitive } = this.options;
+
+    const setLastSearchTerm = (t: any) =>
+      (editor.storage.searchAndReplace.lastSearchTerm = t);
 
     return [
       new Plugin({
-        key: new PluginKey('search'),
+        key: searchAndReplacePluginKey,
         state: {
-          init() {
-            return DecorationSet.empty
-          },
-          apply({ doc, docChanged }) {
-            const { searchTerm, searchResultClass, disableRegex, caseSensitive } = extensionThis.options
+          init: () => DecorationSet.empty,
+          apply({ doc, docChanged }, oldState) {
+            const { searchTerm, lastSearchTerm } =
+              editor.storage.searchAndReplace;
 
-            if (docChanged || searchTerm) {
-              const { decorationsToReturn, results } = processSearches(doc, regex(searchTerm, disableRegex, caseSensitive), searchResultClass)
+            if (!docChanged && lastSearchTerm === searchTerm) return oldState;
 
-              extensionThis.options.results = results
+            setLastSearchTerm(searchTerm);
 
-              return decorationsToReturn
-            }
-            return DecorationSet.empty
+            if (!searchTerm) return DecorationSet.empty;
+
+            const { decorationsToReturn, results } = processSearches(
+              doc,
+              getRegex(searchTerm, disableRegex, caseSensitive),
+              searchResultClass
+            );
+
+            editor.storage.searchAndReplace.results = results;
+
+            return decorationsToReturn;
           },
         },
         props: {
           decorations(state) {
-            return this.getState(state)
+            return this.getState(state);
           },
         },
       }),
-    ]
+    ];
   },
-})
-
-
-export default SearchNReplace
+});
