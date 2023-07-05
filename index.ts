@@ -31,10 +31,6 @@ declare module '@tiptap/core' {
       /**
        * @description Set search term in extension.
        */
-      setSelectedResultIndex: (selectedResultIndex: number) => ReturnType;
-      /**
-       * @description Set search term in extension.
-       */
       setSearchTerm: (searchTerm: string) => ReturnType;
       /**
        * @description Set replace term in extension.
@@ -225,7 +221,6 @@ interface SearchAndReplaceStorage {
   searchTerm: string;
   replaceTerm: string;
   results: Range[];
-  selectedResultIndex?: number;
   lastSearchTerm: string;
 }
 
@@ -248,19 +243,12 @@ export const SearchAndReplace = Extension.create<
       searchTerm: '',
       replaceTerm: '',
       results: [],
-      selectedResultIndex: undefined,
       lastSearchTerm: '',
     };
   },
 
   addCommands() {
     return {
-      setSelectedResultIndex:
-        (newIndex: number | undefined) =>
-        ({ editor }) => {
-          editor.storage.selectedResultIndex = newIndex;
-          return false;
-        },
       setSearchTerm:
         (searchTerm: string) =>
         ({ editor }) => {
