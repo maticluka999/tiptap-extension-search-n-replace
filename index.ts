@@ -269,7 +269,7 @@ export const SearchAndReplace = Extension.create<
         ({ editor, state, dispatch }) => {
           const { replaceTerm, results } = editor.storage.searchAndReplace;
 
-          replace(replaceTerm, results, { state, dispatch });
+          replace(replaceTerm, results, { state, dispatch }, resultIndex);
 
           return false;
         },
